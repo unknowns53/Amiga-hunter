@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Pipeline runtime artifacts
+extracted/
+output/
+renders/
+logs/
+
+# Downloaded archives (collect_aminet.py output) — keep README only
+archives_raw/*
+!archives_raw/README.txt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
