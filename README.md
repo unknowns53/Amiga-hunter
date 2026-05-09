@@ -74,11 +74,18 @@ pip install amitools
 
 ### 4. Blender （サムネイル生成、任意）
 
-[https://www.blender.org/](https://www.blender.org/) から **3.6 LTS または 4.x**
-を入手。Windows既定の場所例：
+[https://www.blender.org/](https://www.blender.org/) から **4.5 LTS 推奨**
+（サポート 2027年7月まで、LWO/3DS コミュニティアドオンの実績豊富）。
+
+Blender 5.0 以降でも `blender_render.py` の EEVEE エンジン名は自動フォールバック
+するため動作する見込みだが、**LWO / 3DS のコミュニティアドオンが 5.x に追従して
+いないリスク**がある。手元に 5.x が入っている場合は、まず試して LWO インポートで
+詰まったら 4.5 LTS をポータブル版として並行導入するのが現実的。
+
+Windows既定の場所例：
 
 ```
-C:\Program Files\Blender Foundation\Blender 4.2\blender.exe
+C:\Program Files\Blender Foundation\Blender 4.5\blender.exe
 ```
 
 #### LWO / 3DS インポーター
@@ -117,7 +124,7 @@ python run_pipeline.py
 notepad output\candidate_models.csv
 
 :: 4) Blenderでサムネイル一括生成
-"C:\Program Files\Blender Foundation\Blender 4.2\blender.exe" --background --python blender_render.py
+"C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" --background --python blender_render.py
 
 :: 5) 参照画像との類似度ランキング
 python compare_renders.py --reference references\ojisan.png
@@ -163,7 +170,9 @@ python compare_renders.py --reference references\ojisan.png --top 30
   ファイルシステムの破損率が高めの古いイメージで失敗することがある
 - **LWOB**: 1990年代前半のフォーマット。コミュニティアドオンによっては
   古すぎるバリエーションを読めないものもある
-- **EEVEE_NEXT**: Blender 4.2以降。それ以前は自動的にEEVEEへフォールバック
+- **EEVEE のエンジン名**: Blender 4.2–4.x では `BLENDER_EEVEE_NEXT`、Blender 5.0
+  以降は `BLENDER_EEVEE` に改名（旧 EEVEE は `BLENDER_EEVEE_LEGACY`）。
+  `blender_render.py` は両方を順に試すので、4.x / 5.x どちらでも動作する想定
 
 ## 類似度ランキング（compare_renders.py）
 
