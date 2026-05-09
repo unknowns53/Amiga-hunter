@@ -153,7 +153,9 @@ def configure_render_engine() -> None:
     scene.render.image_settings.file_format = "PNG"
     scene.render.resolution_x = 512
     scene.render.resolution_y = 512
-    # Try EEVEE_NEXT (Blender 4.2+), then EEVEE, then fall back to whatever's set.
+    # Engine name moved across versions: 4.2-4.x calls it BLENDER_EEVEE_NEXT,
+    # 5.0+ renamed it back to BLENDER_EEVEE (legacy is BLENDER_EEVEE_LEGACY).
+    # Try the 4.x name first, fall back to the 5.x name, then leave default.
     for engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
         try:
             scene.render.engine = engine
