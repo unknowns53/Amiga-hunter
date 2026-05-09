@@ -18,7 +18,7 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
-from .config import ARCHIVES_DIR, EXTRACTED_DIR
+from .config import ARCHIVE_EXTENSIONS, ARCHIVES_DIR, EXTRACTED_DIR
 
 log = logging.getLogger(__name__)
 
@@ -149,7 +149,10 @@ def extract_all() -> dict:
                     ARCHIVES_DIR)
         return {"total": 0, "succeeded": 0, "failed": 0}
 
-    archives = [p for p in ARCHIVES_DIR.rglob("*") if p.is_file()]
+    archives = [
+        p for p in ARCHIVES_DIR.rglob("*")
+        if p.is_file() and p.suffix.lower() in ARCHIVE_EXTENSIONS
+    ]
     succeeded, failed = 0, 0
     for arc in archives:
         if extract_archive(arc):
