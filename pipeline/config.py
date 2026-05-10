@@ -14,9 +14,21 @@ LOGS_DIR      = ROOT / "logs"
 # Archive types we attempt to extract
 ARCHIVE_EXTENSIONS = {
     ".zip", ".lha", ".lzh", ".lzx",
-    ".adf", ".hdf",
+    ".adf", ".hdf", ".iso",
     ".7z", ".rar", ".tar", ".gz", ".tgz",
 }
+
+# Curated Internet Archive item identifiers worth pulling from for Amiga /
+# LightWave / Imagine 3D content. Used as defaults by collect_internet_archive.py
+# when no --identifier is given. Order roughly reflects search priority.
+INTERNET_ARCHIVE_IDENTIFIERS = [
+    # Tier 1: LightWave-native object collections (most likely to yield .lwo).
+    "CommodoreAmigaApplicationsADF",
+    "commodore-amiga-applications-public-domain-adf",
+    "video-toaster-v4.0-intstallation-disk",
+    # Tier 2: CD-ROM compendiums (massive, ISO format).
+    "lightrom1",
+]
 
 # Extensions worth flagging as candidate 3D models
 CANDIDATE_EXTENSIONS = {".lwo", ".lwob", ".obj", ".geo", ".3ds", ".iff", ".lws"}

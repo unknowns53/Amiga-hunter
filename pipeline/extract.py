@@ -50,11 +50,18 @@ def find_xdftool() -> Optional[str]:
 
 # ---------- helpers --------------------------------------------------------
 
-def safe_extract_dir(archive: Path) -> Path:
-    """Pick a unique extraction directory (avoid collisions across archives
-    that happen to share a stem)."""
+def compute_extract_dir(archive: Path) -> Path:
+    """Compute the canonical extraction directory for an archive without
+    creating it. Splitting create from compute lets callers do an
+    idempotency check (skip extract if dir already populated)."""
     h = hashlib.sha1(str(archive).encode("utf-8")).hexdigest()[:8]
-    target = EXTRACTED_DIR / f"{archive.stem}__{h}"
+    return EXTRACTED_DIR / f"{archive.stem}__{h}"
+
+
+def safe_extract_dir(archive: Path) -> Path:
+    """Compute the extraction dir AND ensure it exists. Kept for callers
+    that want both."""
+    target = compute_extract_dir(archive)
     target.mkdir(parents=True, exist_ok=True)
     return target
 
@@ -126,12 +133,22 @@ def extract_adf_hdf(archive: Path, target: Path) -> bool:
 
 def extract_archive(archive: Path) -> bool:
     ext = archive.suffix.lower()
-    target = safe_extract_dir(archive)
+    target = compute_extract_dir(archive)
+
+    # Idempotency: if the target directory already exists and contains files,
+    # treat the archive as already extracted. This makes re-runs cheap and
+    # is essential for the multi-pass loop in extract_all() — without it,
+    # every pass would re-unpack everything we already have.
+    if target.exists() and any(target.iterdir()):
+        log.debug("Already extracted: %s -> %s", archive.name, target.name)
+        return True
+
+    target.mkdir(parents=True, exist_ok=True)
     log.info("Extracting %s -> %s", archive.name, target.name)
 
     if ext == ".zip":
         return extract_zip(archive, target)
-    if ext in {".lha", ".lzh", ".lzx", ".7z", ".rar", ".tar", ".gz", ".tgz"}:
+    if ext in {".lha", ".lzh", ".lzx", ".7z", ".rar", ".tar", ".gz", ".tgz", ".iso"}:
         return extract_with_7zip(archive, target)
     if ext in {".adf", ".hdf"}:
         return extract_adf_hdf(archive, target)
@@ -140,23 +157,52 @@ def extract_archive(archive: Path) -> bool:
     return extract_with_7zip(archive, target)
 
 
-def extract_all() -> dict:
-    """Walk ARCHIVES_DIR, extract every file, return summary."""
+def _find_archives_under(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+    return [
+        p for p in root.rglob("*")
+        if p.is_file() and p.suffix.lower() in ARCHIVE_EXTENSIONS
+    ]
+
+
+def extract_all(max_passes: int = 5) -> dict:
+    """Walk ARCHIVES_DIR (and EXTRACTED_DIR for nested archives), extract
+    every file, return summary.
+
+    Why iterative: Internet Archive items often deliver Amiga software as
+    .zip wrappers around .adf disk images. The .adf only becomes visible
+    after the .zip has been unpacked, so a single pass leaves disk-image
+    contents unreached. We loop until a pass discovers no new archives,
+    capped at max_passes for safety.
+    """
     EXTRACTED_DIR.mkdir(parents=True, exist_ok=True)
     if not ARCHIVES_DIR.exists():
         ARCHIVES_DIR.mkdir(parents=True, exist_ok=True)
         log.warning("Created empty archives dir: %s (drop archives in here).",
                     ARCHIVES_DIR)
-        return {"total": 0, "succeeded": 0, "failed": 0}
+        return {"total": 0, "succeeded": 0, "failed": 0, "passes": 0}
 
-    archives = [
-        p for p in ARCHIVES_DIR.rglob("*")
-        if p.is_file() and p.suffix.lower() in ARCHIVE_EXTENSIONS
-    ]
-    succeeded, failed = 0, 0
-    for arc in archives:
-        if extract_archive(arc):
-            succeeded += 1
-        else:
-            failed += 1
-    return {"total": len(archives), "succeeded": succeeded, "failed": failed}
+    seen: set[Path] = set()
+    total = succeeded = failed = 0
+    pass_no = 0
+
+    for pass_no in range(1, max_passes + 1):
+        # Look in both archives_raw (the original drop) and extracted/
+        # (nested archives revealed by previous passes).
+        new_archives = [
+            p for p in _find_archives_under(ARCHIVES_DIR) + _find_archives_under(EXTRACTED_DIR)
+            if p not in seen
+        ]
+        if not new_archives:
+            break
+        log.info("Extract pass %d: %d new archive(s)", pass_no, len(new_archives))
+        for arc in new_archives:
+            seen.add(arc)
+            total += 1
+            if extract_archive(arc):
+                succeeded += 1
+            else:
+                failed += 1
+
+    return {"total": total, "succeeded": succeeded, "failed": failed, "passes": pass_no}

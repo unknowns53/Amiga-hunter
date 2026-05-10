@@ -8,11 +8,13 @@
 
 ## 何ができるか
 
-1. `archives_raw/` に置いた `zip` / `lha` / `lzx` / `adf` / `hdf` などを展開
+1. `archives_raw/` に置いた `zip` / `lha` / `lzx` / `adf` / `hdf` / `iso` などを
+   **多段で**展開（zip 内の .adf もさらに展開する）
 2. `extracted/` 以下の全ファイルを走査して `output/scan_results.csv` に書き出し
 3. LightWave Object 候補を抽出して `output/candidate_models.csv` に書き出し
 4. (任意) Blender で候補を一括インポートし、正面・斜め・横の3アングルで
    サムネイルレンダリング → `renders/<sha>/`
+5. (任意) 参照画像との類似度ランキング（perceptual hash / CLIP）
 
 ## ディレクトリ構成
 
@@ -20,10 +22,12 @@
 amiga_hunter/
 ├── README.md
 ├── requirements.txt
-├── run_pipeline.py        # 展開→走査→候補抽出（Pythonで実行）
-├── collect_aminet.py      # Aminet から .lha を一括取得（Pythonで実行）
-├── blender_render.py      # サムネイル生成（Blenderで実行）
-├── compare_renders.py     # 参照画像とのperceptual hash比較（Pythonで実行）
+├── run_pipeline.py             # 展開→走査→候補抽出（Pythonで実行）
+├── collect_aminet.py           # Aminet から .lha を一括取得（Pythonで実行）
+├── collect_internet_archive.py # Internet Archive から .adf / .iso / .zip を一括取得
+├── blender_render.py           # サムネイル生成（Blenderで実行）
+├── compare_renders.py          # 参照画像とのperceptual hash比較（Pythonで実行）
+├── compare_renders_clip.py     # CLIP埋め込みでのセマンティック類似度比較
 ├── pipeline/
 │   ├── config.py          # 候補拡張子・キーワード等の設定
 │   ├── extract.py
@@ -116,6 +120,13 @@ cd amiga_hunter
 python collect_aminet.py
 :: README に head/face/man 等のキーワードがあるものだけに絞る場合
 python collect_aminet.py --filter-readme
+
+:: 1c) Internet Archive の LightWave / Imagine 系アイテムから取得
+::    （CommodoreAmigaApplicationsADF, lightrom1 など）
+python collect_internet_archive.py --identifier CommodoreAmigaApplicationsADF --include-name LightWave
+python collect_internet_archive.py --identifier lightrom1
+:: 候補ファイル一覧だけ確認（ダウンロードしない）
+python collect_internet_archive.py --identifier CommodoreAmigaApplicationsADF --include-name Imagine --list-only
 
 :: 2) 展開・走査・候補抽出
 python run_pipeline.py

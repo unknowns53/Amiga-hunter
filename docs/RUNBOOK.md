@@ -51,9 +51,13 @@ Blender アドオンの導入は GUI から：
 
 ---
 
-## 2. アーカイブ収集（`collect_aminet.py`）
+## 2. アーカイブ収集
 
-### 2.1 まずキーワード絞り込みで様子見（推奨スタート）
+収集元は **Aminet ミラー**（`collect_aminet.py`）と **Internet Archive アイテム**
+（`collect_internet_archive.py`）の 2 系統。最初に Aminet で薄く撒いて、
+ヒットが弱ければ IA に拡張するのが基本動線。
+
+### 2.1 Aminet：キーワード絞り込みで様子見（推奨スタート）
 
 ```cmd
 python collect_aminet.py --filter-readme
@@ -64,7 +68,7 @@ python collect_aminet.py --filter-readme
 にヒットするアーカイブだけ落とす。既定取得先 `gfx/3d/`（約 413 本、
 2026年5月時点）でヒット数が 0 〜 数十件程度に絞られる想定。
 
-### 2.2 ヒットが薄い場合は全件取得
+### 2.2 Aminet：ヒットが薄い場合は全件取得
 
 ```cmd
 python collect_aminet.py
@@ -72,7 +76,7 @@ python collect_aminet.py
 
 `gfx/3d/` 全件。数百 MB、回線次第で数十分。
 
-### 2.3 隣接ディレクトリへの拡張
+### 2.3 Aminet：隣接ディレクトリへの拡張
 
 既定の `gfx/3d/` は 3D アプリ本体（LightWave, Imagine, Real3D, Sculpt 等）に
 **サンプルモデルが同梱されている**カテゴリ。ヒットが薄ければ別カテゴリも試す：
@@ -80,21 +84,64 @@ python collect_aminet.py
 ```cmd
 python collect_aminet.py --dir mods/  --filter-readme
 python collect_aminet.py --dir mags/  --filter-readme
+python collect_aminet.py --dir pix/3dobj/  --filter-readme
 ```
 
-Aminet のディレクトリ構成は時期によって変わる（旧 `gfx/3dobj/` は廃止、
-旧 `dev/lwave/` も現存しない）。最新の全体構成は
-<https://ftp.fau.de/aminet/TREE> または同 `INDEX` を参照。
+`pix/3dobj/` には **ユーザー投稿の 3D オブジェクト単体アーカイブ**が直接並んでいる
+（Imagine `.iob`、Real 3D 等。フォーマット問題で Blender 直結インポートは
+不可な場合があるが、強い候補が眠っている）。最新の全体構成は
+<https://ftp.fau.de/aminet/TREE> を参照（旧 `gfx/3dobj/` / 旧 `dev/lwave/` は廃止）。
 
-### 2.4 取得停止と再開
+### 2.4 Internet Archive：LightWave / Imagine の本丸
 
-`Ctrl+C` で中断可。再実行すると既存ファイルは `have:` で **スキップ**するので
-何度でも安全に再開できる。
+Aminet と並ぶ大きな鉱脈。とくに `CommodoreAmigaApplicationsADF` には
+LightWave Objects A〜E、LightWave v3.5 / v4.0 Space Extras、Imagine v3.3 / v4.0、
+StarWars Imagine Objects、A1000 系デモなど、Aminet には無いオブジェクト集が
+ZIP（中身は ADF）の形で揃っている。
 
-### 2.5 ローカル確認用
+```cmd
+:: アイテム内の LightWave 関連だけ
+python collect_internet_archive.py --identifier CommodoreAmigaApplicationsADF --include-name LightWave
+
+:: Imagine 関連だけ
+python collect_internet_archive.py --identifier CommodoreAmigaApplicationsADF --include-name Imagine
+
+:: LIGHT-ROM 1 CD-ROM 全体（約 680 MB の ISO 1 本）
+python collect_internet_archive.py --identifier lightrom1
+
+:: 候補ファイル一覧だけ確認（ダウンロードしない）
+python collect_internet_archive.py --identifier <id> --list-only
+
+:: KEYWORDS（head/face/man/...）でファイル名フィルタ
+python collect_internet_archive.py --identifier CommodoreAmigaApplicationsADF --filter-keywords --limit 30
+```
+
+推奨アイテム識別子は `pipeline/config.py` の `INTERNET_ARCHIVE_IDENTIFIERS` に
+列挙。`--identifier` を省略すると全部走る。
+
+| 識別子 | 内容 | 規模目安 |
+|---|---|---|
+| `CommodoreAmigaApplicationsADF` | Amiga アプリ ADF 集（4000+ ファイル） | LightWave / Imagine 名義で数十〜百数十 MB |
+| `commodore-amiga-applications-public-domain-adf` | PD アプリ集（`A-Z of Lightwave Objects` 等） | 数十 MB |
+| `video-toaster-v4.0-intstallation-disk` | Video Toaster 4.0 インストールディスク | 約 18 MB |
+| `lightrom1` | LIGHT-ROM 1 CD-ROM ISO（全 LW シーン・オブジェクト集） | 約 680 MB（ISO 単体） |
+
+ダウンロード先は `archives_raw/ia/<identifier>/`。`run_pipeline.py` の Step 1 は
+ここも自動で拾う（`archives_raw/` 以下を再帰的に walk するため）。
+**多段展開対応済み** — `.zip` の中の `.adf` も二段目で自動展開される。
+
+### 2.5 取得停止と再開
+
+`Ctrl+C` で中断可。`collect_aminet.py` も `collect_internet_archive.py` も
+既存ファイルはスキップするので何度でも安全に再開できる。
+`run_pipeline.py` も再実行で既存の展開先ディレクトリ（`extracted/.../*__<hash>/`）
+が空でなければ再展開を **スキップ**する（idempotent）。
+
+### 2.6 ローカル確認用
 
 ```cmd
 python collect_aminet.py --limit 5
+python collect_internet_archive.py --identifier video-toaster-v4.0-intstallation-disk --list-only
 ```
 
 ---
@@ -105,8 +152,10 @@ python collect_aminet.py --limit 5
 python run_pipeline.py
 ```
 
-- Step 1: `archives_raw/*.{zip,lha,lzx,adf,hdf,...}` を `extracted/` 以下に展開
-  （`.readme` 等のサイドカーは自動でスキップ）
+- Step 1: `archives_raw/*.{zip,lha,lzx,adf,hdf,iso,...}` を `extracted/` 以下に展開
+  （`.readme` 等のサイドカーは自動でスキップ）。**多段展開**：zip の中身に
+  `.adf` などが現れたら次のパスでさらに展開する（最大 5 パス）。展開済みの
+  ディレクトリはスキップするので再実行は安価。
 - Step 2: `extracted/` 全ファイルを走査して `output/scan_results.csv`
 - Step 3: 候補抽出 → `output/candidate_models.csv`（スコア順）
 
@@ -297,11 +346,17 @@ Blender はインストーラ版とポータブル版が共存可能。
 
 ### G. このリポジトリでカバーしていないこと
 
-- アーカイブ取得元の **Aminet 以外への拡張**（Internet Archive、雑誌カバー
-  ディスク、NewTek 公式素材等）
-- **CLIP / 深層モデルによる類似度判定**（imagehash ベースのみ）
+- **Imagine TDDD / Real 3D v2 / Sculpt 3D ネイティブ形式の Blender 直結
+  インポート**：これら Amiga 固有の旧形式は Blender アドオンが存在しないため、
+  別途 OBJ への変換ツール（`iob2obj` 系のコミュニティ製）が必要。
+  `pix/3dobj/` の `head.lha` / `Glasshead.lha` / `headobj.lha` 等はここで詰まる。
+- **NewTek Inspire 3D / 雑誌カバーディスクの自動収集**：Internet Archive の
+  個別アイテム（NewTek、CG WORLD、3D World、Amiga Format）は識別子を手で
+  指定する必要がある（`pipeline/config.py` の `INTERNET_ARCHIVE_IDENTIFIERS` を拡張）。
 - **モデルの構造的解析**（ポリゴン数・頂点数・トポロジ等）
-- **アーカイブの法的取り扱い**（再配布可否はアーカイブごと別）
+- **アーカイブの法的取り扱い**（再配布可否はアーカイブごと別。発見した
+  モデルの再配布や記事化時は、スクショ・ファイル名・ハッシュ・収録元の
+  記録に留めるのが無難）
 
 ---
 
@@ -314,8 +369,13 @@ pip install -r requirements.txt
 :: 1. 収集（推奨スタート）
 python collect_aminet.py --filter-readme
 
-:: 1b. 別カテゴリへ拡張（必要なら）
+:: 1b. Aminet 別カテゴリへ拡張（必要なら）
 python collect_aminet.py --dir mods/ --filter-readme
+python collect_aminet.py --dir pix/3dobj/ --filter-readme
+
+:: 1c. Internet Archive へ拡張
+python collect_internet_archive.py --identifier CommodoreAmigaApplicationsADF --include-name LightWave
+python collect_internet_archive.py --identifier lightrom1
 
 :: 2. 展開・走査・候補抽出
 python run_pipeline.py
