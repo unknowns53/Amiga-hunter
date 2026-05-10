@@ -61,8 +61,8 @@ python collect_aminet.py --filter-readme
 
 各 `.readme` を先読みし、`pipeline/config.py` の `KEYWORDS`
 （`head` / `face` / `man` / `male` / `human` / `person` / `bust` / `demo` / `tutor`）
-にヒットするアーカイブだけ落とす。`gfx/3dobj/` でヒット数が
-0 〜 数十件程度に絞られる想定。
+にヒットするアーカイブだけ落とす。既定取得先 `gfx/3d/`（約 413 本、
+2026年5月時点）でヒット数が 0 〜 数十件程度に絞られる想定。
 
 ### 2.2 ヒットが薄い場合は全件取得
 
@@ -70,18 +70,21 @@ python collect_aminet.py --filter-readme
 python collect_aminet.py
 ```
 
-`gfx/3dobj/` 全件。数百 MB、回線次第で数十分。
+`gfx/3d/` 全件。数百 MB、回線次第で数十分。
 
-### 2.3 さらに対象範囲を広げる
+### 2.3 隣接ディレクトリへの拡張
+
+既定の `gfx/3d/` は 3D アプリ本体（LightWave, Imagine, Real3D, Sculpt 等）に
+**サンプルモデルが同梱されている**カテゴリ。ヒットが薄ければ別カテゴリも試す：
 
 ```cmd
-python collect_aminet.py --dir gfx/3d/   --filter-readme
-python collect_aminet.py --dir dev/lwave/ --filter-readme
+python collect_aminet.py --dir mods/  --filter-readme
+python collect_aminet.py --dir mags/  --filter-readme
 ```
 
-`gfx/3d/` は 3D アプリ本体（LightWave, Imagine, Real3D, Sculpt 等）に
-**サンプルモデルが同梱されている**ことが多い。`dev/lwave/` は LightWave 関連
-ツール群。
+Aminet のディレクトリ構成は時期によって変わる（旧 `gfx/3dobj/` は廃止、
+旧 `dev/lwave/` も現存しない）。最新の全体構成は
+<https://ftp.fau.de/aminet/TREE> または同 `INDEX` を参照。
 
 ### 2.4 取得停止と再開
 
@@ -187,9 +190,11 @@ python compare_renders.py --reference references\IMG_2211.png --top 30
 - LightWave **PC 版 5.x / 6.x**（1996–2000）の可能性が高い
 - 場合によっては Softimage 3D / 3D Studio Max / 自社ツール
 
-**Aminet `gfx/3dobj/` に該当が出ない場合の Plan B**：
+**Aminet `gfx/3d/` で該当が出ない場合の Plan B**：
 
-1. Aminet `gfx/3d/`（プログラム同梱サンプル）まで広げる
+1. Aminet 内の隣接カテゴリ（`mods/`、`mags/`、`demo/`、`game/` など）まで
+   `--dir` で広げる。最新のディレクトリ構成は
+   <https://ftp.fau.de/aminet/TREE> を参照（旧 `gfx/3dobj/` は廃止）。
 2. それでも無ければ Aminet 範囲外。**Internet Archive** の
    - LightWave PC チュートリアル CD（"NewTek Inspire 3D" 等）
    - 雑誌付録の素材集（CG WORLD, 3D World, Amiga Format カバーディスク）
@@ -279,7 +284,7 @@ Blender はインストーラ版とポータブル版が共存可能。
 ### F. ストレージ・運用
 
 - **ディスク容量**:
-  - `archives_raw/` (`gfx/3dobj/` 全件で 数百 MB)
+  - `archives_raw/` (`gfx/3d/` 全件で 数百 MB)
   - `extracted/` (展開後は元の 2–3 倍に膨らむ可能性)
   - `renders/` (1候補 3 PNG × 数百候補 = 数百 MB)
   - **合計で 1〜2 GB 程度**を目安に空きを確保
@@ -309,8 +314,8 @@ pip install -r requirements.txt
 :: 1. 収集（推奨スタート）
 python collect_aminet.py --filter-readme
 
-:: 1b. 範囲拡大（必要なら）
-python collect_aminet.py --dir gfx/3d/ --filter-readme
+:: 1b. 別カテゴリへ拡張（必要なら）
+python collect_aminet.py --dir mods/ --filter-readme
 
 :: 2. 展開・走査・候補抽出
 python run_pipeline.py

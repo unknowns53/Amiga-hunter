@@ -1,15 +1,21 @@
 """Fetch Amiga 3D-object archives from Aminet into archives_raw/.
 
 Usage:
-    python collect_aminet.py                       # default: gfx/3dobj/, full mirror
+    python collect_aminet.py                       # default: gfx/3d/ on FAU mirror
     python collect_aminet.py --filter-readme       # only files whose .readme matches KEYWORDS
-    python collect_aminet.py --dir gfx/3d/ --limit 50
+    python collect_aminet.py --dir gfx/misc/ --limit 50
 
 Strategy:
-- Parses the Apache-style directory index at us.aminet.net.
+- Parses the Apache-style directory index at ftp.fau.de.
 - Downloads each .lha / .lzx / .lzh plus its companion .readme into ARCHIVES_DIR.
 - Optional --filter-readme pre-fetches the .readme and skips archives whose
   text contains none of the KEYWORDS from pipeline/config.py.
+
+Note: the historical Aminet path `gfx/3dobj/` (used by older versions of this
+script) no longer exists on any mirror as of 2026 — `gfx/3d/` is now the
+canonical location for Amiga 3D content (apps + bundled sample models).
+The legacy `us.aminet.net` host also has a TLS hostname-mismatch issue;
+`ftp.fau.de` is a known-good HTTPS mirror.
 """
 from __future__ import annotations
 
@@ -27,8 +33,8 @@ from pipeline.config import ARCHIVES_DIR, KEYWORDS
 
 log = logging.getLogger("collect_aminet")
 
-DEFAULT_BASE = "https://us.aminet.net/aminet/"
-DEFAULT_DIR = "gfx/3dobj/"
+DEFAULT_BASE = "https://ftp.fau.de/aminet/"
+DEFAULT_DIR = "gfx/3d/"
 USER_AGENT = "amiga-hunter-collector/0.1 (+research)"
 
 ARCHIVE_SUFFIXES = (".lha", ".lzx", ".lzh")
@@ -150,7 +156,7 @@ def collect(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base", default=DEFAULT_BASE, help="Aminet HTTPS mirror base URL")
-    parser.add_argument("--dir", default=DEFAULT_DIR, help="subdirectory (default: gfx/3dobj/)")
+    parser.add_argument("--dir", default=DEFAULT_DIR, help="subdirectory (default: gfx/3d/)")
     parser.add_argument("--target", type=Path, default=ARCHIVES_DIR, help="local archives dir")
     parser.add_argument(
         "--filter-readme",
