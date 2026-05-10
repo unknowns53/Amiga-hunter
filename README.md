@@ -92,8 +92,8 @@ C:\Program Files\Blender Foundation\Blender 4.5\blender.exe
 
 Blender 4.x ではLWO・3DSがコアから外れているため、コミュニティアドオンが必要：
 
-- **LWO**: 例 [github.com/koneight/blender-lwo](https://github.com/koneight/blender-lwo)
-  （フォークが複数あるので、自分のBlenderバージョンに合うものを）
+- **LWO**: 例 [github.com/nangtani/blender-import-lwo](https://github.com/nangtani/blender-import-lwo)
+  （Releases の `io_scene_lwo.zip` を取得。v1.4.7 以降が Blender 4.x 対応）
 - **3DS**: 同様にコミュニティアドオン
   ([Extensions プラットフォーム](https://extensions.blender.org/) 等で配布)
 

@@ -100,7 +100,7 @@ def import_model(path: Path) -> bool:
             else:
                 raise RuntimeError(
                     "LWO importer unavailable. Install a community LWO add-on, "
-                    "e.g. https://github.com/koneight/blender-lwo")
+                    "e.g. https://github.com/nangtani/blender-import-lwo")
         elif ext == ".3ds":
             if hasattr(bpy.ops.import_scene, "autodesk_3ds"):
                 bpy.ops.import_scene.autodesk_3ds(filepath=p)
