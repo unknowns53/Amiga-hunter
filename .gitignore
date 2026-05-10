@@ -23,3 +23,6 @@ references/*_trimmed.*
 Thumbs.db
 .vscode/
 .idea/
+
+# Claude Code session metadata (scheduled_tasks.lock etc.)
+.claude/

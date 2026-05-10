@@ -24,6 +24,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 CANDIDATES_CSV = SCRIPT_DIR / "output" / "candidate_models.csv"
 RENDERS_DIR    = SCRIPT_DIR / "renders"
 LOGS_DIR       = SCRIPT_DIR / "logs"
+# Checkpoint file: resume from the last attempted candidate index after a
+# Blender C-level crash, instead of re-iterating every candidate's idempotency
+# check. Saved as JSON so we can validate against the current candidate list
+# (count) and invalidate when the pipeline regenerates with a different size.
+RESUME_FILE    = RENDERS_DIR / ".resume_index"
 
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 RENDERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -61,6 +66,36 @@ def log_error(model_path: str, exc: BaseException) -> None:
         f.write(f"FAIL {model_path}: {exc}\n")
         f.write(traceback.format_exc())
         f.write("\n")
+
+
+# ---------- resume checkpoint ----------------------------------------------
+
+def read_resume_index(expected_count: int) -> int:
+    """Return the last attempted candidate index from the checkpoint, or 0
+    if none / mismatched. Mismatch on count means the candidate list changed
+    (pipeline re-ran), so we restart from the beginning."""
+    try:
+        data = json.loads(RESUME_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError, OSError):
+        return 0
+    if data.get("count") != expected_count:
+        log.info("Resume checkpoint count=%s mismatches current candidates=%d; "
+                 "ignoring.", data.get("count"), expected_count)
+        return 0
+    return int(data.get("index", 0))
+
+
+def write_resume_index(i: int, total: int) -> None:
+    """Persist progress before each render attempt so a Blender crash leaves
+    a recoverable marker. Keep writes resilient — failure here must not abort
+    the pass."""
+    try:
+        RESUME_FILE.write_text(
+            json.dumps({"index": i, "count": total}),
+            encoding="utf-8",
+        )
+    except OSError as e:
+        log.warning("Couldn't write resume checkpoint: %s", e)
 
 
 # ---------- addon enabling -------------------------------------------------
@@ -269,13 +304,40 @@ def main() -> None:
     # plus a non-error info.json. Crucial because the candidate set keeps
     # growing as we pull more sources, and re-rendering 1000+ models we
     # already have eats hours.
+    #
+    # Crash-safe sentinel: malformed LWO/3DS files can take down the entire
+    # Blender process with EXCEPTION_ACCESS_VIOLATION (a C-level crash that
+    # Python try/except cannot catch). Without a marker, the next run hits
+    # the same file and crashes again — infinite loop. We touch
+    # ".render_attempted" before importing; if a future run sees this
+    # sentinel WITHOUT a complete result, we skip the file as a known
+    # crasher.
+    #
+    # Resume checkpoint: even with the sentinel, every restart had to walk
+    # the whole candidate list (~5000 rows) doing stat + iterdir on each
+    # already-rendered out_dir. For C-crash recovery loops that restart
+    # dozens of times, this idempotency walk dominates wall-clock. We now
+    # persist the last attempted index before each render and fast-forward
+    # past it on restart, dropping the per-pass overhead from ~10s to ~1s.
     expected_views = {"front.png", "threequarter.png", "side.png"}
-    success = fail = already = 0
+    resume_from = read_resume_index(len(candidates))
+    if resume_from > 0:
+        log.info("Resuming from checkpoint index %d/%d (skipping prior attempts)",
+                 resume_from, len(candidates))
+    success = fail = already = crash_skipped = fast_forward = 0
     for i, row in enumerate(candidates, 1):
+        # Fast-forward: previously attempted in this candidate-list version.
+        # Disk state (sentinel / info.json) is authoritative for the prior
+        # attempt's outcome; we don't need to re-evaluate it here.
+        if i <= resume_from:
+            fast_forward += 1
+            continue
+
         path = Path(row["path"])
         if not path.exists():
             log.warning("Skipping (file missing): %s", path)
             fail += 1
+            write_resume_index(i, len(candidates))
             continue
 
         sha = row.get("sha256") or ""
@@ -294,9 +356,23 @@ def main() -> None:
                     info_ok = False
             if expected_views.issubset(existing) and info_ok:
                 already += 1
+                write_resume_index(i, len(candidates))
+                continue
+            # Sentinel exists but result is incomplete -> previous run crashed
+            # mid-import on this file. Don't try again.
+            if (out_dir / ".render_attempted").exists():
+                log.warning("Skipping (previously crashed Blender): %s", path)
+                crash_skipped += 1
+                write_resume_index(i, len(candidates))
                 continue
 
         log.info("[%d/%d] %s", i, len(candidates), path.name)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        sentinel = out_dir / ".render_attempted"
+        sentinel.touch()
+        # Record progress BEFORE the import so a C-level crash still leaves
+        # the checkpoint pointing past this file.
+        write_resume_index(i, len(candidates))
         try:
             ok = render_model(path, sha, out_dir)
             if ok:
@@ -308,7 +384,9 @@ def main() -> None:
             log_error(str(path), e)
             fail += 1
 
-    log.info("Render summary: success=%d fail=%d already=%d", success, fail, already)
+    log.info("Render summary: success=%d fail=%d already=%d crash_skipped=%d "
+             "fast_forward=%d",
+             success, fail, already, crash_skipped, fast_forward)
 
 
 if __name__ == "__main__":
