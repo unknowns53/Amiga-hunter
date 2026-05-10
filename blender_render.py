@@ -39,6 +39,17 @@ logging.basicConfig(
 log = logging.getLogger("render")
 ERROR_LOG = LOGS_DIR / "render_errors.log"
 
+# Truncate the per-run error log so it reflects only this run; otherwise
+# old failures from a prior Blender version (or different add-on state)
+# linger and confuse triage.
+ERROR_LOG.write_text("", encoding="utf-8")
+
+# Only these extensions are wired up in import_model(). Filtering candidates
+# upfront avoids per-row directory creation, info.json writes, and noisy
+# "No importer wired up" log lines for the false-positive bulk
+# (no-ext binaries, .info, .iff, .txt, .jpg, etc.).
+SUPPORTED_EXTENSIONS = {".obj", ".lwo", ".lwob", ".3ds"}
+
 
 # ---------- error logging --------------------------------------------------
 
@@ -243,9 +254,13 @@ def main() -> None:
     setup_blender_addons()
 
     with CANDIDATES_CSV.open("r", encoding="utf-8") as fh:
-        candidates = list(csv.DictReader(fh))
+        all_rows = list(csv.DictReader(fh))
 
-    log.info("Rendering %d candidate(s)", len(candidates))
+    candidates = [r for r in all_rows
+                  if (r.get("ext") or "").lower() in SUPPORTED_EXTENSIONS]
+    skipped = len(all_rows) - len(candidates)
+    log.info("Rendering %d candidate(s) (skipped %d unsupported-extension rows)",
+             len(candidates), skipped)
     success = fail = 0
     for i, row in enumerate(candidates, 1):
         path = Path(row["path"])

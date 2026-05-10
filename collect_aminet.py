@@ -24,6 +24,7 @@ import logging
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
@@ -86,6 +87,32 @@ def readme_keyword_hits(text: str, keywords: list[str]) -> list[str]:
     return [kw for kw in keywords if kw in low]
 
 
+def _fetch_readme(base: str, subdir: str, name: str) -> tuple[str, str]:
+    """Worker: fetch a single .readme. Returns (name, text) — empty text on
+    failure. Used by the parallel prefetch."""
+    stem = name.rsplit(".", 1)[0]
+    url = urljoin(base, subdir + stem + ".readme")
+    try:
+        return name, http_get(url, timeout=30).decode("utf-8", errors="replace")
+    except Exception:
+        return name, ""
+
+
+def prefetch_readmes(base: str, subdir: str, names: list[str], workers: int) -> dict[str, str]:
+    """Fetch all readmes concurrently. Returns {name: readme_text}."""
+    out: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_fetch_readme, base, subdir, n): n for n in names}
+        done = 0
+        for fut in as_completed(futures):
+            name, text = fut.result()
+            out[name] = text
+            done += 1
+            if done % 50 == 0:
+                log.info("readme prefetch: %d/%d", done, len(names))
+    return out
+
+
 def collect(
     base: str,
     subdir: str,
@@ -93,6 +120,7 @@ def collect(
     filter_keywords: list[str] | None,
     limit: int | None,
     sleep: float,
+    workers: int = 1,
 ) -> dict:
     target.mkdir(parents=True, exist_ok=True)
     names = list_directory(base, subdir)
@@ -109,6 +137,15 @@ def collect(
         "failed": 0,
     }
 
+    # Optional parallel prefetch: when filtering by readme, fetching them
+    # concurrently is the single biggest speedup (an N-archive listing goes
+    # from N*sleep seconds to roughly N/workers * one-RTT). Downloads stay
+    # sequential with the existing sleep so we don't hammer the mirror.
+    readme_cache: dict[str, str] = {}
+    if filter_keywords is not None and workers > 1:
+        log.info("Prefetching %d readmes with %d workers ...", len(archives), workers)
+        readme_cache = prefetch_readmes(base, subdir, archives, workers)
+
     for i, name in enumerate(archives, 1):
         archive_url = urljoin(base, subdir + name)
         stem = name.rsplit(".", 1)[0]
@@ -118,17 +155,21 @@ def collect(
 
         readme_text = ""
         if filter_keywords is not None:
-            try:
-                readme_text = http_get(readme_url, timeout=30).decode(
-                    "utf-8", errors="replace"
-                )
-            except Exception as e:
-                log.debug("readme fetch failed for %s: %s", name, e)
+            if name in readme_cache:
+                readme_text = readme_cache[name]
+            else:
+                try:
+                    readme_text = http_get(readme_url, timeout=30).decode(
+                        "utf-8", errors="replace"
+                    )
+                except Exception as e:
+                    log.debug("readme fetch failed for %s: %s", name, e)
             hits = readme_keyword_hits(readme_text, filter_keywords)
             if not hits:
                 log.info("[%d/%d] skip (no kw): %s", i, len(archives), name)
                 summary["skipped_no_match"] += 1
-                time.sleep(sleep)
+                if not readme_cache:
+                    time.sleep(sleep)
                 continue
             log.info("[%d/%d] kw=%s -> %s", i, len(archives), ",".join(hits), name)
 
@@ -165,6 +206,10 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int, help="cap number of files (for testing)")
     parser.add_argument("--sleep", type=float, default=0.5, help="seconds between requests")
+    parser.add_argument(
+        "--workers", type=int, default=8,
+        help="parallel readme prefetch workers (default: 8; set to 1 to disable)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -174,7 +219,8 @@ def main() -> None:
     )
 
     keywords = KEYWORDS if args.filter_readme else None
-    summary = collect(args.base, args.dir, args.target, keywords, args.limit, args.sleep)
+    summary = collect(args.base, args.dir, args.target, keywords, args.limit,
+                      args.sleep, workers=args.workers)
     log.info("Summary: %s", summary)
 
 
