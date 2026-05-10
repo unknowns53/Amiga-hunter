@@ -15,6 +15,9 @@ logs/
 archives_raw/*
 !archives_raw/README.txt
 
+# Generated reference variants (regenerate via trim_reference.py)
+references/*_trimmed.*
+
 # OS / editor
 .DS_Store
 Thumbs.db
