@@ -9,9 +9,10 @@ import logging
 import sys
 
 from pipeline.config import LOGS_DIR, OUTPUT_DIR
+from pipeline.convert import convert_all
 from pipeline.extract import extract_all
-from pipeline.scan import scan_all
 from pipeline.identify import identify
+from pipeline.scan import scan_all
 
 
 def setup_logging() -> None:
@@ -36,11 +37,15 @@ def main() -> None:
     summary = extract_all()
     log.info("Extracted: %s", summary)
 
-    log.info("=== Step 2: Scan extracted files ===")
+    log.info("=== Step 2: Convert Amiga-native models to OBJ ===")
+    conv_summary = convert_all()
+    log.info("Converted: %s", conv_summary)
+
+    log.info("=== Step 3: Scan extracted files ===")
     rows = scan_all()
     log.info("Scanned: %d files", len(rows))
 
-    log.info("=== Step 3: Identify candidates ===")
+    log.info("=== Step 4: Identify candidates ===")
     candidates = identify(rows)
     log.info("Candidates: %d", len(candidates))
 
