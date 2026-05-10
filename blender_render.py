@@ -48,7 +48,10 @@ ERROR_LOG.write_text("", encoding="utf-8")
 # upfront avoids per-row directory creation, info.json writes, and noisy
 # "No importer wired up" log lines for the false-positive bulk
 # (no-ext binaries, .info, .iff, .txt, .jpg, etc.).
-SUPPORTED_EXTENSIONS = {".obj", ".lwo", ".lwob", ".3ds"}
+# .lw is the original 1990s LightWave Object extension on Amiga (the .lwo /
+# .lwob spelling is later); same FORM/LWOB format underneath, so the LWO
+# importer handles them.
+SUPPORTED_EXTENSIONS = {".obj", ".lwo", ".lwob", ".lw", ".3ds"}
 
 
 # ---------- error logging --------------------------------------------------
@@ -105,7 +108,7 @@ def import_model(path: Path) -> bool:
                 bpy.ops.wm.obj_import(filepath=p)
             else:
                 bpy.ops.import_scene.obj(filepath=p)
-        elif ext in {".lwo", ".lwob"}:
+        elif ext in {".lwo", ".lwob", ".lw"}:
             if hasattr(bpy.ops.import_scene, "lwo"):
                 bpy.ops.import_scene.lwo(filepath=p)
             else:
@@ -261,7 +264,13 @@ def main() -> None:
     skipped = len(all_rows) - len(candidates)
     log.info("Rendering %d candidate(s) (skipped %d unsupported-extension rows)",
              len(candidates), skipped)
-    success = fail = 0
+
+    # Idempotency check: skip rows whose render dir already has all 3 views
+    # plus a non-error info.json. Crucial because the candidate set keeps
+    # growing as we pull more sources, and re-rendering 1000+ models we
+    # already have eats hours.
+    expected_views = {"front.png", "threequarter.png", "side.png"}
+    success = fail = already = 0
     for i, row in enumerate(candidates, 1):
         path = Path(row["path"])
         if not path.exists():
@@ -273,6 +282,19 @@ def main() -> None:
         if not sha or sha == "TOO_LARGE":
             sha = f"nohash_{i:05d}"
         out_dir = RENDERS_DIR / sha[:16]
+
+        if out_dir.exists():
+            existing = {p.name for p in out_dir.iterdir() if p.is_file()}
+            info_path = out_dir / "info.json"
+            info_ok = False
+            if info_path.exists():
+                try:
+                    info_ok = "error" not in json.loads(info_path.read_text(encoding="utf-8"))
+                except Exception:
+                    info_ok = False
+            if expected_views.issubset(existing) and info_ok:
+                already += 1
+                continue
 
         log.info("[%d/%d] %s", i, len(candidates), path.name)
         try:
@@ -286,7 +308,7 @@ def main() -> None:
             log_error(str(path), e)
             fail += 1
 
-    log.info("Render summary: success=%d fail=%d", success, fail)
+    log.info("Render summary: success=%d fail=%d already=%d", success, fail, already)
 
 
 if __name__ == "__main__":

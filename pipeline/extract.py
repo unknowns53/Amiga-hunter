@@ -104,23 +104,48 @@ def extract_with_7zip(archive: Path, target: Path) -> bool:
 
 
 def extract_adf_hdf(archive: Path, target: Path) -> bool:
-    """Extract Amiga disk image (ADF/HDF) via amitools xdftool."""
+    """Extract Amiga disk image (ADF/HDF) via amitools xdftool.
+
+    Two Windows-specific footguns we work around:
+
+    1) Some Amiga ADFs hold non-ASCII filenames (e.g. German "ß" on the
+       'LightWave Objects' disks). On Japanese Windows xdftool prints
+       and saves a metadata JSON in the locale codec (cp932), which
+       cannot encode those characters and crashes with UnicodeEncodeError.
+       Forcing PYTHONUTF8=1 / PYTHONIOENCODING=utf-8 makes Python use
+       UTF-8 throughout instead of the locale codec.
+
+    2) Even with PYTHONUTF8=1, xdftool can hit a write that bypasses
+       Python's UTF-8 mode and abort *after* extracting the actual
+       files. We detect this by checking whether the target dir has
+       any files: if extraction succeeded but metadata save failed,
+       the LWO/etc payload is fine and we treat it as a partial success.
+    """
     xdftool = find_xdftool()
     if not xdftool:
         log.warning("xdftool not found; skipping %s. Install with: pip install amitools",
                     archive.name)
         return False
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     try:
-        # xdftool <image> unpack <target_dir>
         result = subprocess.run(
             [xdftool, str(archive), "unpack", str(target)],
-            capture_output=True, text=True, timeout=600,
+            capture_output=True, text=True, timeout=600, env=env,
+            encoding="utf-8", errors="replace",
         )
-        if result.returncode != 0:
-            log.error("xdftool failed for %s (rc=%d): %s",
-                      archive, result.returncode, result.stderr[:500])
-            return False
-        return True
+        if result.returncode == 0:
+            return True
+        # Salvage path: count actual extracted files. xdftool's metadata
+        # save can crash while leaving the real payload on disk.
+        extracted = sum(1 for p in target.rglob("*") if p.is_file())
+        if extracted > 0:
+            log.info("xdftool partial success for %s: %d files on disk despite "
+                     "rc=%d (likely metadata-save crash)",
+                     archive.name, extracted, result.returncode)
+            return True
+        log.error("xdftool failed for %s (rc=%d): %s",
+                  archive, result.returncode, (result.stderr or "")[:500])
+        return False
     except subprocess.TimeoutExpired:
         log.error("xdftool timed out for %s", archive)
         return False
