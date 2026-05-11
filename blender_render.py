@@ -21,14 +21,33 @@ import mathutils  # provided by Blender
 
 # Anchor everything to this script's directory so it works regardless of cwd.
 SCRIPT_DIR = Path(__file__).resolve().parent
-CANDIDATES_CSV = SCRIPT_DIR / "output" / "candidate_models.csv"
 RENDERS_DIR    = SCRIPT_DIR / "renders"
 LOGS_DIR       = SCRIPT_DIR / "logs"
-# Checkpoint file: resume from the last attempted candidate index after a
-# Blender C-level crash, instead of re-iterating every candidate's idempotency
-# check. Saved as JSON so we can validate against the current candidate list
-# (count) and invalidate when the pipeline regenerates with a different size.
-RESUME_FILE    = RENDERS_DIR / ".resume_index"
+
+
+def _parse_candidates_arg() -> Path:
+    """Honor "--candidates <path>" after "--" in argv. Lets the caller point
+    blender_render.py at a subset CSV (e.g. only LWOB-derived OBJs from
+    formerly-import_failed sources) without disturbing the main candidate
+    list. Defaults to output/candidate_models.csv."""
+    default = SCRIPT_DIR / "output" / "candidate_models.csv"
+    if "--" not in sys.argv:
+        return default
+    user_argv = sys.argv[sys.argv.index("--") + 1:]
+    i = 0
+    while i < len(user_argv):
+        if user_argv[i] == "--candidates" and i + 1 < len(user_argv):
+            return Path(user_argv[i + 1]).resolve()
+        i += 1
+    return default
+
+
+CANDIDATES_CSV = _parse_candidates_arg()
+# Resume checkpoint: tag the file by the candidate CSV's stem so subsets and
+# the main list don't trample each other's progress markers. JSON content
+# also includes count, so a subset shrinking/growing invalidates its own
+# checkpoint independently.
+RESUME_FILE    = RENDERS_DIR / f".resume_index_{CANDIDATES_CSV.stem}"
 
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 RENDERS_DIR.mkdir(parents=True, exist_ok=True)

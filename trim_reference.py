@@ -1,15 +1,15 @@
 """Crop reference image to head bbox and place on render-matched background.
 
-Why: the reference image (IMG_2211.png) and Blender renders have different
+Why: the reference image (ojisan.png) and Blender renders have different
 backgrounds. perceptual-hash distance picks up that delta. By cropping the
 reference to its content bbox and pasting onto the same dark-grey canvas
 the renders use, we reduce structural noise in the phash distance.
 
 Usage:
     python trim_reference.py
-       --in references/IMG_2211.png
+       --in references/ojisan/ojisan.png
        --sample renders/<sha16>/threequarter.png
-       --out references/IMG_2211_trimmed.png
+       --out references/ojisan/ojisan_trimmed.png
 """
 from __future__ import annotations
 
@@ -52,10 +52,10 @@ def sample_background(render_path: Path) -> tuple[int, int, int]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in", dest="src", type=Path, default=Path("references/IMG_2211.png"))
+    ap.add_argument("--in", dest="src", type=Path, default=Path("references/ojisan/ojisan.png"))
     ap.add_argument("--sample", type=Path, required=True,
                     help="any rendered PNG to sample the background color from")
-    ap.add_argument("--out", type=Path, default=Path("references/IMG_2211_trimmed.png"))
+    ap.add_argument("--out", type=Path, default=Path("references/ojisan/ojisan_trimmed.png"))
     ap.add_argument("--size", type=int, default=512)
     ap.add_argument("--margin", type=float, default=0.08,
                     help="extra padding around head as fraction of canvas")

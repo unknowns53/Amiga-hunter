@@ -15,8 +15,32 @@ logs/
 archives_raw/*
 !archives_raw/README.txt
 
-# Generated reference variants (regenerate via trim_reference.py)
+# Generated reference variants (regenerate via trim_reference.py /
+# build_reference_variants.py). The originals (ojisan.png and the kudan
+# captures) are tracked; everything derived from them is not.
 references/*_trimmed.*
+references/ojisan/ojisan_trimmed.*
+references/ojisan/ojisan_all*.png
+references/ojisan/ojisan_binary*.png
+references/ojisan/ojisan_edges*.png
+references/ojisan/ojisan_face*.png
+references/ojisan/ojisan_grayscale*.png
+references/ojisan/ojisan_hair*.png
+references/ojisan/ojisan_head*.png
+references/ojisan/ojisan_silhouette*.png
+references/ojisan/ojisan_torso*.png
+
+# External binary tools (download/extract locally, never commit).
+# JRE alone is ~50 MB; jpsxdec ships its own bundle of jars/exes.
+tools/jre/
+tools/jpsxdec/
+tools/*.zip
+tools/*.tar.*
+
+# jpsxdec runtime / debug output (auto-generated each run)
+debug*.log
+索引.log
+*.idx
 
 # OS / editor
 .DS_Store

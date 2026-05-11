@@ -13,6 +13,6 @@
 ## 使用例
 
 ```cmd
-python compare_renders.py --reference references/ojisan.png
-python compare_renders.py --reference references/ojisan_front.png --method dhash --top 30
+python compare_renders.py --reference references/ojisan/ojisan.png
+python compare_renders.py --reference references/ojisan/ojisan_front.png --method dhash --top 30
 ```

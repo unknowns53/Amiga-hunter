@@ -1,7 +1,7 @@
 """Rank rendered candidates by perceptual-hash distance to a reference image.
 
 Usage:
-    python compare_renders.py --reference references/ojisan.png
+    python compare_renders.py --reference references/ojisan/ojisan.png
     python compare_renders.py --reference ref.png --method dhash --top 30
 
 Reads:

@@ -3,10 +3,10 @@
 Why: perceptual hashes (compare_renders.py) only capture overall image
 structure. CLIP image embeddings capture *semantic* content — "a head with
 an open mouth", "a vehicle", "a ball" — which is what we actually want to
-match against IMG_2211.png.
+match against ojisan.png.
 
 Usage:
-    python compare_renders_clip.py --reference references/IMG_2211.png
+    python compare_renders_clip.py --reference references/ojisan/ojisan.png
     python compare_renders_clip.py --reference ref.png --model ViT-L-14 --top 30
 
 Reads:

@@ -42,10 +42,23 @@ def mark_crashed_dirs() -> int:
     return marked
 
 
+def _extra_blender_args() -> list[str]:
+    """Forward "--candidates <path>" from our argv into Blender's script
+    args (after "--"). Lets us bulk-render a subset CSV without editing
+    blender_render.py."""
+    if "--candidates" not in sys.argv:
+        return []
+    i = sys.argv.index("--candidates")
+    if i + 1 >= len(sys.argv):
+        return []
+    return ["--", "--candidates", sys.argv[i + 1]]
+
+
 def run_blender() -> int:
     """Launch Blender. Returns its exit code (negative on signal/crash on
     POSIX, large positive on Windows access violation)."""
     cmd = [BLENDER, "--background", "--python", str(RENDER_SCRIPT)]
+    cmd.extend(_extra_blender_args())
     print(f"\n--- Launching: {' '.join(cmd)} ---", flush=True)
     proc = subprocess.run(cmd, cwd=SCRIPT_DIR)
     return proc.returncode

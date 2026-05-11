@@ -9,10 +9,17 @@ matched against the reference image. This module fills that gap.
 
 Currently implemented:
   - Imagine TDDD  (FORM ... TDDD ... OBJ ... DESC chunks)
+  - LightWave LWOB (FORM ... LWOB ... PNTS / POLS / SRFS / SURF chunks)
 
 Planned:
   - Real 3D v2   ("object\\x00..." header)
   - anim1.4      (Real 3D animation/morph container)
+
+Why LWOB needs a custom parser: the community Blender LWO addon
+(nangtani/blender-import-lwo) crashes at C-level (EXCEPTION_ACCESS_VIOLATION)
+on certain LIGHT-ROM era files such as ROMAN.LWO. We bypass it entirely by
+parsing the IFF chunks directly and emitting OBJ — geometry only, materials
+discarded.
 
 Usage:
     from pipeline.convert import convert_all
@@ -251,6 +258,102 @@ def parse_tddd(data: bytes) -> list[Mesh]:
     return meshes
 
 
+# ---------- LightWave LWOB parser -----------------------------------------
+
+def _parse_lwob_pnts(payload: bytes) -> list[tuple[float, float, float]]:
+    """LWOB PNTS: tightly packed float32 BE, 3 per vertex.
+
+    LightWave is left-handed Y-up (X right, Y up, +Z forward).
+    Wavefront OBJ is right-handed Y-up (X right, Y up, -Z forward).
+    Flip Z so the model faces +Z (toward the viewer in front view)."""
+    n = len(payload) // 12
+    if n == 0:
+        return []
+    coords = struct.unpack(f">{n * 3}f", payload[:n * 12])
+    out: list[tuple[float, float, float]] = []
+    for k in range(n):
+        x = coords[k * 3 + 0]
+        y = coords[k * 3 + 1]
+        z = coords[k * 3 + 2]
+        out.append((x, y, -z))
+    return out
+
+
+def _parse_lwob_pols(payload: bytes, n_verts: int) -> list[tuple[int, ...]]:
+    """LWOB POLS: stream of polygons.
+
+    Each polygon: u16 BE numverts, numverts × u16 BE point indices,
+    i16 BE surface index (signed, negative = detail polygon flag).
+    We discard the surface index and keep the raw n-gon for later
+    triangulation."""
+    polys: list[tuple[int, ...]] = []
+    i = 0
+    n = len(payload)
+    while i + 2 <= n:
+        nv = struct.unpack(">H", payload[i:i + 2])[0]
+        i += 2
+        # Detail-polygon flag: high bit on numverts indicates detail polys
+        # follow; LWOB uses negative surface index instead. Be defensive.
+        if nv == 0 or nv > 1023:
+            log.debug("Suspicious polygon vertex count %d at offset %d", nv, i - 2)
+            break
+        end = i + nv * 2
+        if end + 2 > n:
+            log.warning("POLS truncated mid-polygon at %d", i - 2)
+            break
+        idx = struct.unpack(f">{nv}H", payload[i:end])
+        i = end + 2  # skip surface index
+        if any(v >= n_verts for v in idx):
+            continue
+        polys.append(tuple(idx))
+    return polys
+
+
+def _triangulate(poly: tuple[int, ...]) -> list[tuple[int, int, int]]:
+    """Fan-triangulate an n-gon. Good enough for convex faces, which is
+    what LightWave content discs ship — characters are usually quads."""
+    if len(poly) < 3:
+        return []
+    if len(poly) == 3:
+        return [(poly[0], poly[1], poly[2])]
+    out: list[tuple[int, int, int]] = []
+    a = poly[0]
+    for k in range(1, len(poly) - 1):
+        out.append((a, poly[k], poly[k + 1]))
+    return out
+
+
+def parse_lwob(data: bytes) -> list[Mesh]:
+    """Parse a LWOB file into a single Mesh (LWOB has no sub-object structure)."""
+    if data[:4] != b"FORM" or data[8:12] != b"LWOB":
+        return []
+    form_size = struct.unpack(">I", data[4:8])[0]
+    body = data[12:8 + form_size]
+
+    verts: list[tuple[float, float, float]] = []
+    raw_polys: list[tuple[int, ...]] = []
+    name = "lwob"
+    for cn, cp in _walk_chunks(body):
+        if cn == b"PNTS":
+            verts = _parse_lwob_pnts(cp)
+        elif cn == b"POLS":
+            # Defer parsing until we know vertex count for bounds check.
+            raw_polys_payload = cp
+            # Fallback: parse with current verts known (PNTS comes before POLS
+            # in well-formed LWOB files, which is the case for ROMAN.LWO).
+            raw_polys = _parse_lwob_pols(cp, len(verts) if verts else 1 << 31)
+
+    if not verts or not raw_polys:
+        return []
+
+    faces: list[tuple[int, int, int]] = []
+    for poly in raw_polys:
+        faces.extend(_triangulate(poly))
+    if not faces:
+        return []
+    return [Mesh(name=name, vertices=verts, faces=faces)]
+
+
 # ---------- OBJ writing ----------------------------------------------------
 
 def write_obj(meshes: list[Mesh], path: Path, source: Path | None = None) -> None:
@@ -288,6 +391,8 @@ def detect_format(path: Path) -> str | None:
         return None
     if head[:4] == b"FORM" and head[8:12] == b"TDDD":
         return "tddd"
+    if head[:4] == b"FORM" and head[8:12] == b"LWOB":
+        return "lwob"
     # Real 3D v2 single object: starts with "object\x00..."
     if head[:7] == b"object\x00":
         return "real3d_v2"
@@ -324,6 +429,20 @@ def convert_file(path: Path) -> Path | None:
         write_obj(meshes, obj_path, source=path)
         log.info("TDDD -> OBJ: %s (%d meshes, %d verts, %d faces)",
                  obj_path.name, len(meshes),
+                 sum(len(m.vertices) for m in meshes),
+                 sum(len(m.faces) for m in meshes))
+        return obj_path
+
+    if fmt == "lwob":
+        meshes = parse_lwob(data)
+        if not meshes:
+            log.info("No geometry in LWOB %s", path.name)
+            return None
+        # Use the source filename as group name (LWOB has no embedded name).
+        meshes[0].name = path.stem or "lwob"
+        write_obj(meshes, obj_path, source=path)
+        log.info("LWOB -> OBJ: %s (%d verts, %d faces)",
+                 obj_path.name,
                  sum(len(m.vertices) for m in meshes),
                  sum(len(m.faces) for m in meshes))
         return obj_path

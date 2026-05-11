@@ -50,7 +50,28 @@ log = logging.getLogger("collect_ia")
 
 USER_AGENT = "amiga-hunter-collector/0.1 (+research)"
 METADATA_URL = "https://archive.org/metadata/{identifier}"
+# Default download endpoint. Used when metadata doesn't expose a workable
+# server hint (rare). IA's redirect layer through /download/ sometimes routes
+# to broken CDN edges (dn7***.ca.archive.org returning 500), so we prefer the
+# direct mirror URL from metadata's `workable_servers` / `server`+`dir` when
+# available — see direct_url_from_meta().
 DOWNLOAD_URL = "https://archive.org/download/{identifier}/{filename}"
+
+
+def direct_url_from_meta(meta: dict, filename: str) -> str | None:
+    """Build a direct mirror URL of the form
+    https://{server}{dir}/{filename} from IA metadata.
+
+    `workable_servers` is preferred (it's curated). Falls back to `d2`/`d1`/
+    `server`. Returns None if no usable host is in metadata."""
+    workable = meta.get("workable_servers") or []
+    server = workable[0] if workable else (
+        meta.get("d2") or meta.get("d1") or meta.get("server")
+    )
+    item_dir = meta.get("dir")
+    if not server or not item_dir:
+        return None
+    return f"https://{server}{item_dir}/{quote(filename)}"
 
 # Extensions we care about. Anything else (auto-generated thumbnails,
 # .torrent files, _meta.xml, derivative .ocr.txt, etc.) is dropped.
@@ -134,9 +155,13 @@ def download_file(
     expected_size: int,
     target_dir: Path,
     timeout: int = 1800,
+    direct_url: str | None = None,
 ) -> tuple[str, str]:
     """Download one IA file. Returns (name, status) where status is one of
-    'downloaded' / 'already_present' / 'failed'."""
+    'downloaded' / 'already_present' / 'failed'.
+
+    If direct_url is provided (built from item metadata), use it instead of
+    /download/. Falls back to /download/ if direct_url fails."""
     dest = target_dir / name
     dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -144,29 +169,34 @@ def download_file(
         if expected_size == 0 or dest.stat().st_size == expected_size:
             return name, "already_present"
 
-    url = DOWNLOAD_URL.format(identifier=identifier, filename=quote(name))
-    try:
-        # Stream to disk; IA files can be hundreds of MB.
-        req = Request(url, headers={"User-Agent": USER_AGENT})
-        with urlopen(req, timeout=timeout) as resp, open(dest, "wb") as fh:
-            while True:
-                chunk = resp.read(1 << 20)  # 1 MiB
-                if not chunk:
-                    break
-                fh.write(chunk)
-        return name, "downloaded"
-    except HTTPError as e:
-        log.warning("HTTP %s for %s", e.code, url)
-    except URLError as e:
-        log.warning("URL error for %s: %s", url, e)
-    except Exception as e:
-        log.warning("Download failed %s: %s", url, e)
-    # Clean up partial file on failure.
-    try:
-        if dest.exists() and dest.stat().st_size != expected_size:
-            dest.unlink()
-    except Exception:
-        pass
+    candidate_urls: list[str] = []
+    if direct_url:
+        candidate_urls.append(direct_url)
+    candidate_urls.append(DOWNLOAD_URL.format(identifier=identifier, filename=quote(name)))
+
+    for url in candidate_urls:
+        try:
+            # Stream to disk; IA files can be hundreds of MB.
+            req = Request(url, headers={"User-Agent": USER_AGENT})
+            with urlopen(req, timeout=timeout) as resp, open(dest, "wb") as fh:
+                while True:
+                    chunk = resp.read(1 << 20)  # 1 MiB
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+            return name, "downloaded"
+        except HTTPError as e:
+            log.warning("HTTP %s for %s", e.code, url)
+        except URLError as e:
+            log.warning("URL error for %s: %s", url, e)
+        except Exception as e:
+            log.warning("Download failed %s: %s", url, e)
+        # Clean up partial file before next attempt / final failure.
+        try:
+            if dest.exists() and dest.stat().st_size != expected_size:
+                dest.unlink()
+        except Exception:
+            pass
     return name, "failed"
 
 
@@ -232,7 +262,10 @@ def collect_item(
 
     with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
         futures = {
-            ex.submit(download_file, identifier, name, size, target_dir): name
+            ex.submit(
+                download_file, identifier, name, size, target_dir, 1800,
+                direct_url_from_meta(meta, name),
+            ): name
             for name, size in keep
         }
         for i, fut in enumerate(as_completed(futures), 1):
